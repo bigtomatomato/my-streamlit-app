@@ -26,9 +26,9 @@ if st.button("변환하기"):
         speech = client.audio.speech.create(
             model="gpt-4o-mini-tts",
             voice="nova",
-            input=transcript.text,
+            input= text
         )
-        audio_bytes = speech.content
+        #audio_bytes = speech.content
 
         # 음성 출력
         st.markdown("### 🔊 음성 재생")
