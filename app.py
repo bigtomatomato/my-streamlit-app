@@ -9,7 +9,7 @@ client = OpenAI()
 # 페이지 설정
 st.set_page_config(page_title="5개국어 종합 번역기", page_icon="📖")
 st.title("종합 번역기📑")
-st.write("한글을 5개국어로 번역해드립니다.")
+st.write("한글을 5개 국어로 번역해드립니다.")
 
 # 사용자 입력(텍스트)
 korean_text = st.text_area(
