@@ -20,11 +20,11 @@ text = st.text_area(
 # 버튼
 if st.button("변환하기"):
     if text.strip() == "":
-        st.warning("입력해주세요.")
+        st.warning("텍스트를 입력해주세요.")
     else:
         # TTS 생성
         speech = client.audio.speech.create(
-            model"gpt-4o-mini-tts",
+            model="gpt-4o-mini-tts",
             voice="nova",
             input=transcript.text,
         )
