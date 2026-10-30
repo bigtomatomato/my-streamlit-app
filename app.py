@@ -54,5 +54,5 @@ if st.button("번역"):
             # 결과 출력
             translated_text = response.output_text
 
-            st.subheader("'language' 번역 결과")
+            st.subheader(f"{language} 번역 결과")
             st.success(translated_text)
