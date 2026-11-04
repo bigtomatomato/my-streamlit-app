@@ -1,5 +1,5 @@
 
-import os, base64, json, requests
+import os
 import streamlit as st
 from openai import OpenAI
 
@@ -7,9 +7,14 @@ from openai import OpenAI
 client = OpenAI()
 
 # 페이지 설정
-st.set_page_config(page_title="음성 AI 서비스", page_icon="🤖", layout="wide")
-st.title("음성 인식 AI 서비스")
-st.write("음성으로 질문하시면 답변해 드립니다.")
+st.set_page_config(
+    page_title="음성 AI 서비스",
+    page_icon="🤖",
+    layout="wide"
+)
+
+st.title("🤖 음성 AI 챗봇")
+st.write("음성 또는 텍스트로 질문하시면 답변해 드립니다.")
 
 # 역할 지정
 sys_role = """
@@ -17,54 +22,162 @@ sys_role = """
 개인 비서처럼 친절하게 응대합니다.
 
 찾아낼 수 없는 질문은 임의로 정답을 만들지 않습니다.
-판단하여 김대리에게 관련 자료를 요청해서 답변할 수 있도록 합니다.
+필요한 정보가 부족하면 김대리에게 관련 자료를 요청합니다.
+
+업로드된 파일이 있다면 해당 내용을 우선 참고하여 답변합니다.
+여러 파일이 있다면 파일명을 구분하여 내용을 분석합니다.
+이전 대화의 맥락을 유지하면서 후속 질문에 답변합니다.
 """
 
-# 상태 초기화
+# 세션 상태 초기화
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# 지시 영역
+if "file_text" not in st.session_state:
+    st.session_state.file_text = ""
+
+if "file_names" not in st.session_state:
+    st.session_state.file_names = []
+
+# 파일 업로드
+uploaded_files = st.file_uploader(
+    "파일 업로드",
+    type=["txt", "csv"],
+    accept_multiple_files=True
+)
+
+if uploaded_files:
+    file_text = ""
+    file_names = []
+
+    for uploaded_file in uploaded_files:
+        try:
+            text = uploaded_file.getvalue().decode("utf-8-sig")
+
+        except UnicodeDecodeError:
+            st.error(
+                f"{uploaded_file.name}: UTF-8 형식으로 저장해주세요."
+            )
+            st.stop()
+
+        file_text += f"\n\n[파일명: {uploaded_file.name}]\n{text}"
+        file_names.append(uploaded_file.name)
+
+    # 파일 목록이나 내용이 변경되면 대화 초기화
+    if (
+        st.session_state.file_names != file_names
+        or st.session_state.file_text != file_text
+    ):
+        st.session_state.messages = []
+
+    st.session_state.file_text = file_text
+    st.session_state.file_names = file_names
+
+    st.success(f"{len(uploaded_files)}개 파일이 등록되었습니다.")
+
+else:
+    # 모든 파일이 제거되면 파일 내용과 대화 초기화
+    if st.session_state.file_text:
+        st.session_state.file_text = ""
+        st.session_state.file_names = []
+        st.session_state.messages = []
+
+# 기존 대화 표시
+st.subheader("💬 대화 기록")
+
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.write(msg["content"])
+
+# 음성 입력
 with st.form("task_form"):
-    uploaded_file = st.file_uploader("텍스트 파일 업로드", type=["txt"])
-    audio_value = st.audio_input("무엇을 도와드릴까요?")
-    submit = st.form_submit_button("실행")
+    audio_value = st.audio_input("🎤 음성으로 질문하기")
+    submit = st.form_submit_button("음성 질문 실행")
 
-# 버튼을 눌렀을 때만 실행
+# 텍스트 입력
+user_input = st.chat_input("메시지를 입력하세요...")
+
+# 입력 변수 초기화
+user_question = None
+
+# 1. 음성 입력 처리
 if submit:
-    # 업로드 된 파일이 있으면 디코딩
-    text = ""
-    if uploaded_file is not None:
-        text = uploaded_file.read().decode("utf-8")
-
-    # 녹음이 없으면 녹음 요청
     if audio_value is None:
         st.warning("음성을 녹음해주세요.")
         st.stop()
 
-    # 시스템 메세지
+    try:
+        with st.spinner("음성을 인식하고 있습니다..."):
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=("audio.wav", audio_value.getvalue(), "audio/wav")
+            )
+
+        user_question = transcript.text
+
+    except Exception as e:
+        st.error(f"음성 인식 오류: {e}")
+        st.stop()
+
+# 2. 텍스트 입력 처리
+elif user_input:
+    user_question = user_input
+
+# 3. 질문이 입력되었을 때만 실행
+if user_question:
+
+    # 시스템 메시지 구성
     system_content = sys_role
-    if text:
-        system_content += f"\n\n다음 내용을 참고하세요:\n{text}"
-    input_messages = [{"role": "system", "content": system_content}]
 
-    # STT: 음성 → 텍스트
-    transcript = client.audio.transcriptions.create(
-        model="whisper-1",
-        file=("audio.wav", audio_value, "audio/wav"))
-
-    # 사용자 메시지
-    input_messages.append({"role": "user", "content": transcript.text})
-
-    # LLM 호출 및 응답 듣기
-    with st.spinner("답변을 준비하고 있습니다..."):
-        # LLM 호출
-        response = client.responses.create(
-            model="gpt-4o-mini",
-            input=input_messages
+    if st.session_state.file_text:
+        system_content += (
+            "\n\n다음 파일 내용을 참고하세요:\n"
+            + st.session_state.file_text
         )
-        answer = response.output_text
 
-        # 응답 출력
-        st.subheader("AI 답변")
-        st.write(answer)
+    # 현재 사용자 질문 출력
+    with st.chat_message("user"):
+        st.write(user_question)
+
+    # 시스템 메시지 + 이전 대화 + 현재 질문
+    input_messages = [
+        {"role": "system", "content": system_content}
+    ]
+
+    input_messages.extend(st.session_state.messages)
+
+    input_messages.append({
+        "role": "user",
+        "content": user_question
+    })
+
+    try:
+        # LLM 호출
+        with st.spinner("답변을 준비하고 있습니다..."):
+            response = client.responses.create(
+                model="gpt-4o-mini",
+                input=input_messages
+            )
+
+            answer = response.output_text
+
+        # AI 답변 출력
+        with st.chat_message("assistant"):
+            st.write(answer)
+
+        # 대화 기록 저장
+        st.session_state.messages.append({
+            "role": "user",
+            "content": user_question
+        })
+
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": answer
+        })
+
+        # 최근 10개 질문·답변 쌍 유지
+        st.session_state.messages = st.session_state.messages[-20:]
+
+    except Exception as e:
+        st.error(f"오류가 발생했습니다: {e}")
