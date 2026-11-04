@@ -51,7 +51,7 @@ if "file_signature" not in st.session_state:
     st.session_state.file_signature = None
 
 
-# 파일 내용을 작은 단위로 분할
+# 파일 내용을 작은 단위로 분할 / 해당 분항한 자료를 이후 session_state에 저장
 def make_chunks(file_name, text, file_type):
 
     chunks = []
