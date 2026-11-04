@@ -181,12 +181,14 @@ if uploaded_files:
         f"{len(uploaded_files)}개 파일이 등록되었습니다."
     )
 
-# 기존 대화 표시
+# 대화 내용 출력 영역
 st.subheader("💬 대화 기록")
+chat_area = st.container()
 
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.write(msg["content"])
+with chat_area:
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
 
 # 음성 및 텍스트 입력을 화면 하단에 고정
 with st.container(key="bottom_input"):
@@ -278,7 +280,8 @@ if user_question:
             )
 
     # 사용자 질문 출력
-    with st.chat_message("user"):
+    with chat_area:
+      with st.chat_message("user"):
         st.write(user_question)
 
     # 시스템 메시지 + 최근 대화 + 현재 질문
@@ -295,23 +298,23 @@ if user_question:
 
     try:
         start_time = time.perf_counter()
-
         # 4. 스트리밍 답변
-        with st.chat_message("assistant"):
+        with chat_area:
+            with st.chat_message("assistant"):
 
-            response = client.responses.create(
-                model="gpt-4o-mini",
-                input=input_messages,
-                max_output_tokens=500,
-                stream=True
-            )
+                response = client.responses.create(
+                    model="gpt-4o-mini",
+                    input=input_messages,
+                    max_output_tokens=500,
+                    stream=True
+                )
 
-            def stream_answer():
-                for event in response:
-                    if event.type == "response.output_text.delta":
-                        yield event.delta
+                def stream_answer():
+                    for event in response:
+                        if event.type == "response.output_text.delta":
+                            yield event.delta
 
-            answer = st.write_stream(stream_answer())
+                answer = st.write_stream(stream_answer())
 
         elapsed = time.perf_counter() - start_time
         st.caption(f"답변 처리 시간: {elapsed:.2f}초")
