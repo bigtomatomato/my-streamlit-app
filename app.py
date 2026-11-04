@@ -188,15 +188,14 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-# 음성 입력
-with st.form("task_form"):
-    audio_value = st.audio_input("🎤 음성으로 질문하기")
-    submit = st.form_submit_button("음성 질문 실행")
+# 음성 및 텍스트 입력을 화면 하단에 고정
+with st.container(key="bottom_input"):
 
-# 텍스트 입력
-user_input = st.chat_input("메시지를 입력하세요...")
+    with st.form("task_form"):
+        audio_value = st.audio_input("🎤 음성으로 질문하기")
+        submit = st.form_submit_button("음성 질문 실행")
 
-user_question = None
+    user_input = st.chat_input("메시지를 입력하세요...")
 
 # 1. 음성 인식
 if submit:
