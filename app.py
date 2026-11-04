@@ -197,6 +197,10 @@ with st.container(key="bottom_input"):
 
     user_input = st.chat_input("메시지를 입력하세요...")
 
+# 입력 변수 초기화 / 입력한 질문 하나 저장 변수
+user_question = None #="" 도 가능 의미 차이x
+
+
 # 1. 음성 인식
 if submit:
 
@@ -214,7 +218,7 @@ if submit:
                     audio_value.getvalue(),
                     "audio/wav"
                 ),
-                language="ko"
+                language="ko" # 언어 추정 정보처리 감소
             )
 
         user_question = transcript.text
