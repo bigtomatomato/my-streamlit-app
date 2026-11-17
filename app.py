@@ -2,9 +2,9 @@
 import base64
 import io
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from pathlib import Path
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 from operator import itemgetter
 
 import streamlit as st
@@ -15,99 +15,87 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.messages import HumanMessage, AIMessage
 
 
-# ============================================================
-# 1. 기본 설정
-# ============================================================
+# ==========================================================
+# 1. 기본 설정 및 이미지 경로
+# ==========================================================
 
 st.set_page_config(
-    page_title="AIVLE 학습 도우미",
+    page_title="AIVLE Mate",
     page_icon="🥠",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-BASE_DIR = Path(__file__).resolve().parent
-
-# 기존 DB 설정 유지
+# 기존 DB 경로 및 컬렉션 그대로 유지
 CHROMA_DIR = "chroma_db"
 COLLECTION = "aivle_docs"
 
-# 이미지 저장 경로
-ASSETS = BASE_DIR / "assets"
-DRIVE_ASSETS = Path("/content/drive/MyDrive/project04")
+BASE = Path(__file__).resolve().parent
+
+# Google Drive의 PROJECT4 폴더
+DRIVE = Path("/content/drive/MyDrive/PROJECT4")
 
 
 def find_image(*names):
-    """프로젝트 폴더 또는 Google Drive에서 이미지 탐색"""
-    for folder in (ASSETS, DRIVE_ASSETS):
-        if not folder.is_dir():
-            continue
-
+    for folder in (BASE / "assets", DRIVE):
         for name in names:
-            for extension in (".png", ".jpg", ".jpeg", ".webp"):
-                candidate = folder / (name + extension)
-
-                if candidate.is_file():
-                    return str(candidate)
-
+            for ext in (".png", ".jpg", ".jpeg", ".webp"):
+                path = folder / f"{name}{ext}"
+                if path.is_file():
+                    return path
     return None
 
 
-LOGO_IMAGE = find_image(
-    "투명 배경 AIVLE 로고 복원", "AIVLE  로고", "aivle_logo"
+LOGO = find_image(
+    "AIVLE 로고",
+    "AIVLE  로고",
+    "aivle_logo"
 )
 
-FORTUNE_CLOSED_IMAGE = find_image(
-    "닫힌 포춘", "닫힌 포춘 쿠키", "fortune_closed"
+COOKIE_CLOSED = find_image(
+    "닫힌 포춘",
+    "닫힌 포춘 쿠키",
+    "fortune_closed"
 )
 
-FORTUNE_OPEN_IMAGE = find_image(
-    "열린 포춘", "열린 포춘 쿠키", "fortune_open"
+COOKIE_OPEN = find_image(
+    "열린 포춘",
+    "여린 포춘",
+    "열린 포춘 쿠키",
+    "fortune_open"
 )
 
 
-# ============================================================
-# 2. 포춘쿠키 LLM
-# ============================================================
+def image_css_url(path, max_width=460):
+    """
+    이미지를 CSS 배경으로 변환.
+    포춘쿠키와 로고 이미지 자체를 클릭 가능한 버튼으로 사용.
+    """
+    if not path:
+        return None
 
-def today_korea():
-    """서버 시간대와 관계없이 한국 시간 사용"""
-    return datetime.now(ZoneInfo("Asia/Seoul"))
+    from PIL import Image
 
+    with Image.open(path) as im:
+        im.thumbnail((max_width, max_width))
 
-def generate_fortune():
-    """RAG를 사용하지 않고 LLM으로 응원 문구 생성"""
+        output = io.BytesIO()
 
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0.9
-    )
-
-    response = llm.invoke(
-        """
-        당신은 KT AIVLE School 교육생에게
-        포춘쿠키 응원 메시지를 주는 작가입니다.
-
-        학습, 성장, 도전, 휴식 중 하나를 주제로
-        자연스럽고 재치 있게 응원해주세요.
-
-        규칙:
-        1. 한국어 20자 이내의 짧은 응원 문구 하나만 작성하세요.
-        2. 설명 없이 응원 문구만 출력하세요.
-        3. 날짜나 '오늘의 응원:' 접두어를 출력하지 마세요.
-        4. 매번 다양한 표현을 사용하세요.
-        """
-    )
+        im.save(
+            output,
+            format="PNG",
+            optimize=True
+        )
 
     return (
-        response.content.strip().strip('"“”')
-        or "오늘도 한 걸음 성장 중!"
+        "data:image/png;base64,"
+        + base64.b64encode(output.getvalue()).decode()
     )
 
 
-# ============================================================
-# 3. 기존 RAG 함수
-# ============================================================
+# ==========================================================
+# 2. 기존 RAG 함수 (변경 없음)
+# ==========================================================
 
 def format_docs(docs):
     return "\n\n".join(
@@ -142,7 +130,6 @@ def get_chain():
     1. 반드시 제공된 문서 내용(context)에 근거하여 답변하세요.
     2. 문서에 없는 내용은 추측하지 말고 "업로드된 문서에서 확인되지 않습니다."라고 답하세요.
     3. 답변은 간결하고 명확하게 작성하세요.
-
     [문서]
     {context}
     """
@@ -175,25 +162,27 @@ def get_chain():
     return rag_chain
 
 
-# ============================================================
-# 4. 업로드 파일 처리
-# ============================================================
+# ==========================================================
+# 3. 파일 업로드 기능
+# ==========================================================
 
 @st.cache_resource
-def get_upload_chain():
-
-    s_msg = """
-    제공된 문서 내용만을 근거로 간결하고 명확하게 답하세요.
-
-    문서에 없는 내용은 추측하지 말고
-    '업로드된 문서에서 확인되지 않습니다.'라고 답하세요.
-
-    [문서]
-    {context}
-    """
+def get_attachment_chain():
 
     prompt = ChatPromptTemplate.from_messages([
-        ("system", s_msg),
+        (
+            "system",
+            """
+            반드시 제공된 문서에 근거해 답변하세요.
+
+            문서에 없으면
+            '업로드된 문서에서 확인되지 않습니다.'
+            라고 답하세요.
+
+            [문서]
+            {context}
+            """
+        ),
         ("human", "{input}")
     ])
 
@@ -206,16 +195,16 @@ def get_upload_chain():
     return prompt | llm | StrOutputParser()
 
 
-def uploaded_text(files):
+def text_from_files(files):
 
-    collected = []
+    results = []
 
-    for file in files or []:
+    for name, data in files:
 
-        ext = Path(file.name).suffix.lower()
-        data = file.getvalue()
+        ext = Path(name).suffix.lower()
 
         try:
+
             if ext == ".txt":
 
                 content = data.decode("utf-8-sig")
@@ -247,55 +236,170 @@ def uploaded_text(files):
             else:
                 continue
 
-            collected.append(
-                f"[첨부파일: {file.name}]\n{content[:45000]}"
+            results.append(
+                f"[첨부파일: {name}]\n{content[:30000]}"
             )
 
-        except Exception as e:
+        except Exception as exc:
+
             st.warning(
-                f"{file.name} 파일을 읽을 수 없습니다: {e}"
+                f"{name} 파일 읽기 실패: {exc}"
             )
 
-    return "\n\n".join(collected)
+    return "\n\n".join(results)
 
 
-def stream_answer(question, attachments):
+def answer_stream(question, files):
 
-    if attachments:
-
-        docs = get_retriever().invoke(question)
-
-        context = (
-            format_docs(docs)
-            + "\n\n"
-            + uploaded_text(attachments)
-        )
-
-        return get_upload_chain().stream({
-            "context": context,
+    # 첨부파일이 없으면 기존 RAG 사용
+    if not files:
+        return get_chain().stream({
             "input": question
         })
 
-    return get_chain().stream({
+    # 첨부파일이 있으면 기존 RAG 문맥과 결합
+    docs = get_retriever().invoke(question)
+
+    context = (
+        format_docs(docs)
+        + "\n\n"
+        + text_from_files(files)
+    )
+
+    return get_attachment_chain().stream({
+        "context": context,
         "input": question
     })
 
 
-# ============================================================
-# 5. CSS 인터페이스
-# ============================================================
+# ==========================================================
+# 4. 포춘쿠키 LLM
+# ==========================================================
+
+def korean_today():
+    return datetime.now(
+        ZoneInfo("Asia/Seoul")
+    )
+
+
+def fortune_message():
+
+    # 기존 RAG와 분리된 LLM 호출
+    llm = ChatOpenAI(
+        model="gpt-4o-mini",
+        temperature=0.9
+    )
+
+    response = llm.invoke(
+        """
+        당신은 KT AIVLE School 교육생들을 위한
+        포춘쿠키 응원 메시지 작가입니다.
+
+        다음 규칙을 따르세요.
+
+        1. 학습, 도전, 성장, 휴식 중 하나를 주제로 합니다.
+        2. 재치 있고 따뜻한 문구를 작성합니다.
+        3. 한국어 20자 이내로 작성합니다.
+        4. 응원 문구 하나만 출력합니다.
+        5. 날짜, 따옴표, 설명, 접두사는 출력하지 않습니다.
+        """
+    )
+
+    return (
+        response.content.strip().strip('"“”')
+        or "오늘도 충분히 잘하고 있어!"
+    )
+
+
+# ==========================================================
+# 5. 세션 상태
+# ==========================================================
+
+if "chats" not in st.session_state:
+    st.session_state.chats = {}
+
+if "chat_id" not in st.session_state:
+    st.session_state.chat_id = None
+
+if "deleting" not in st.session_state:
+    st.session_state.deleting = False
+
+if "fortune_open" not in st.session_state:
+    st.session_state.fortune_open = False
+
+if "fortune_by_date" not in st.session_state:
+    st.session_state.fortune_by_date = {}
+
+if "queued_question" not in st.session_state:
+    st.session_state.queued_question = None
+
+
+def new_chat():
+
+    cid = uuid4().hex
+
+    st.session_state.chats[cid] = {
+        "title": "새 대화",
+        "messages": [],
+        "files": []
+    }
+
+    st.session_state.chat_id = cid
+    st.session_state.deleting = False
+    st.session_state.queued_question = None
+
+
+if st.session_state.chat_id not in st.session_state.chats:
+    new_chat()
+
+
+def toggle_cookie():
+    st.session_state.fortune_open = (
+        not st.session_state.fortune_open
+    )
+
+
+# ==========================================================
+# 6. 이미지 CSS 준비
+# ==========================================================
+
+cookie_url = image_css_url(
+    COOKIE_OPEN
+    if st.session_state.fortune_open
+    else COOKIE_CLOSED
+)
+
+logo_url = image_css_url(
+    LOGO,
+    max_width=350
+)
+
+
+# ==========================================================
+# 7. 전체 UI 디자인
+# ==========================================================
 
 st.markdown("""
 <style>
 
 :root {
-    --aivle: #03b9c1;
-    --mint: #83f7e8;
-    --side: #dedede;
+    --mint: #13c9bc;
+    --ink: #172b38;
+    --muted: #7b8993;
 }
 
+/* 전체 화면 */
+
 [data-testid="stAppViewContainer"] {
-    background: #ffffff;
+    background:
+        radial-gradient(
+            ellipse at 75% 4%,
+            #e7faf6 0%,
+            transparent 46%
+        ),
+        #f7fafb;
+
+    color: var(--ink);
 }
 
 [data-testid="stHeader"] {
@@ -303,169 +407,224 @@ st.markdown("""
 }
 
 [data-testid="stMainBlockContainer"] {
-    padding-top: 0.4rem;
-    padding-bottom: 18rem;
-    max-width: none;
+    max-width: 1040px;
+    padding-top: 1.25rem;
+    padding-bottom: 9rem;
 }
+
 
 /* 사이드바 */
 
 section[data-testid="stSidebar"] {
-    width: 28vw !important;
-    min-width: 240px !important;
-    max-width: 350px !important;
-    background: var(--side);
-    border-right: 1px solid #888;
+    background: #edf3f4;
+    border-right: 1px solid #dce8e9;
+    min-width: 245px;
+    width: 285px !important;
 }
 
 section[data-testid="stSidebar"]
 [data-testid="stSidebarContent"] {
-    background: var(--side);
+    padding-top: 1.9rem;
 }
 
 section[data-testid="stSidebar"] button {
-    border-radius: 7px;
-}
-
-/* 채팅 상단 */
-
-.st-key-chat_header {
-    background: var(--side);
-    border-bottom: 1px solid #777;
-    min-height: 65px;
-    padding: 8px 12px;
-    position: relative;
-}
-
-.st-key-chat_header [data-testid="stImage"] {
-    width: 125px;
-}
-
-.st-key-chat_header [data-testid="stButton"] {
-    position: absolute;
-    inset: 0;
-    z-index: 2;
-}
-
-.st-key-chat_header [data-testid="stButton"] button {
-    width: 150px;
-    height: 53px;
-    opacity: 0;
-    cursor: pointer;
-}
-
-/* 포춘쿠키 */
-
-.st-key-fortune_zone {
-    position: relative;
-    min-height: 55px;
-}
-
-.st-key-fortune_zone [data-testid="stButton"] {
-    position: absolute;
-    top: 0;
-    left: 0;
-    z-index: 2;
-}
-
-.st-key-fortune_zone [data-testid="stButton"] button {
-    width: 65px;
-    height: 55px;
-    opacity: 0;
-    cursor: pointer;
-}
-
-.st-key-fortune_zone [data-testid="stImage"] {
-    width: 58px;
-}
-
-/* 하단 채팅 입력창 */
-
-.st-key-bottom_composer {
-    position: fixed;
-    z-index: 10;
-    bottom: 0;
-    left: min(28vw, 350px);
-    right: 0;
-    background: #fff;
-    padding: 10px 24px 17px;
-    border-top: 1px solid #f3f3f3;
-}
-
-.st-key-bottom_composer [data-testid="stForm"] {
-    background: #ddd;
-    border: 1px solid #555;
-    border-radius: 40px;
-    padding: 1px 7px 1px 13px;
-}
-
-.st-key-bottom_composer
-[data-testid="stForm"]
-[data-testid="stTextInput"] input {
+    border-radius: 12px;
+    border: 0;
     background: transparent;
-    border: none;
-    box-shadow: none;
-    font-size: 16px;
-}
-
-.st-key-bottom_composer
-[data-testid="stForm"]
-[data-testid="stFormSubmitButton"] button {
-    background: var(--mint);
-    border: none;
-    border-radius: 50%;
-    min-width: 38px;
-    width: 38px;
-    height: 38px;
-    color: #126a69;
-    padding: 0;
-}
-
-.st-key-bottom_composer
-[data-testid="stForm"]
-[data-testid="stFormSubmitButton"] button:hover {
-    background: #40e6d4;
-}
-
-/* 파일 업로드 */
-
-.st-key-bottom_composer [data-testid="stFileUploader"] {
-    background: #f4f4f4;
-    padding: 7px;
-    border-radius: 5px;
-}
-
-.st-key-bottom_composer
-[data-testid="stFileUploaderDropzone"] {
-    padding: 5px;
-    min-height: 58px;
-}
-
-.st-key-bottom_composer
-[data-testid="stFileUploaderDropzoneInstructions"] {
-    display: none;
-}
-
-.st-key-bottom_composer
-[data-testid="stFileUploaderDropzone"] button {
-    font-size: 12px;
-}
-
-.st-key-bottom_composer [data-testid="stButton"] button {
     text-align: left;
 }
 
+section[data-testid="stSidebar"] button:hover {
+    background: #dcecea;
+    color: #126c68;
+}
+
+
+/* AIVLE 로고 영역 */
+
+.st-key-topbar {
+    padding: .4rem .6rem .7rem;
+    border-bottom: 1px solid #e5eeef;
+    margin-bottom: 1rem;
+}
+
+.st-key-brand_button button {
+    height: 55px;
+    width: 160px;
+
+    border: 0 !important;
+    box-shadow: none !important;
+    background-color: transparent !important;
+
+    font-size: 0 !important;
+
+    background-repeat: no-repeat !important;
+    background-size: contain !important;
+    background-position: left center !important;
+}
+
+.st-key-brand_button button:focus {
+    box-shadow: none !important;
+}
+
+
+/* 환영 메시지 */
+
+.st-key-welcome {
+    padding: 1.4rem 0 .6rem;
+    text-align: center;
+}
+
+.st-key-welcome h1 {
+    font-size: 2.3rem;
+    line-height: 1.25;
+    letter-spacing: -.04em;
+    color: #183a43;
+}
+
+.st-key-welcome p {
+    color: #728892;
+    font-size: 1rem;
+}
+
+
+/* 포춘쿠키 카드 */
+
+.st-key-fortune_card {
+    border: 1px solid #d5eeeb;
+    border-radius: 25px;
+    padding: 1.1rem 1.2rem;
+
+    background: linear-gradient(
+        125deg,
+        #ffffff 0%,
+        #effcf9 100%
+    );
+
+    box-shadow:
+        0 10px 32px rgba(24,117,112,.06);
+
+    margin: 1rem auto 1.4rem;
+}
+
+.st-key-cookie_button button {
+    height: 135px;
+    width: 200px;
+
+    border: 0 !important;
+    background-color: transparent !important;
+
+    background-size: contain !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+
+    box-shadow: none !important;
+    font-size: 0 !important;
+
+    transition: transform .22s ease;
+}
+
+.st-key-cookie_button button:hover {
+    transform: scale(1.07);
+    background-color: transparent !important;
+    border: 0 !important;
+}
+
+.st-key-cookie_button button:focus {
+    box-shadow: none !important;
+}
+
+.st-key-fortune_card p {
+    color: #55747b;
+}
+
+
+/* 추천 질문 카드 */
+
+.st-key-suggestion_area button {
+    background: #fff !important;
+    border: 1px solid #dfe9eb !important;
+
+    border-radius: 16px !important;
+    padding: 1.15rem !important;
+
+    min-height: 95px;
+
+    color: #34515a !important;
+    text-align: left;
+
+    box-shadow:
+        0 5px 16px rgba(22,71,72,.04);
+
+    white-space: normal;
+}
+
+.st-key-suggestion_area button:hover {
+    border-color: #62d9cd !important;
+    background: #f3fffc !important;
+}
+
+
+/* 채팅 메시지 */
+
+[data-testid="stChatMessage"] {
+    background: rgba(255,255,255,.72);
+
+    border: 1px solid #e8eff1;
+    border-radius: 17px;
+
+    margin: .6rem 0;
+    padding: .65rem .8rem;
+}
+
+
+/* 채팅 입력창 */
+
+[data-testid="stChatInput"] {
+    border-radius: 23px;
+
+    box-shadow:
+        0 8px 30px rgba(23,82,79,.12);
+
+    border: 1px solid #d9e8e7;
+    background: #fff;
+}
+
+[data-testid="stChatInputSubmitButton"] button {
+    background: #70eee0 !important;
+    border-radius: 50% !important;
+    color: #124d4a !important;
+}
+
+
+/* 업로드 영역 */
+
+.st-key-upload_box {
+    margin-top: 1.2rem;
+    padding: 0 .4rem;
+}
+
+.st-key-upload_box [data-testid="stExpander"] {
+    background: rgba(255,255,255,.8);
+    border: 1px solid #e5eeee;
+    border-radius: 13px;
+}
+
+
 /* 모바일 */
 
-@media(max-width:800px) {
+@media(max-width:700px) {
+
+    .st-key-welcome h1 {
+        font-size: 1.8rem;
+    }
+
+    .st-key-suggestion_area button {
+        min-height: 70px;
+    }
 
     section[data-testid="stSidebar"] {
         width: 260px !important;
-    }
-
-    .st-key-bottom_composer {
-        left: 0;
-        padding: 8px 12px;
     }
 }
 
@@ -473,447 +632,413 @@ section[data-testid="stSidebar"] button {
 """, unsafe_allow_html=True)
 
 
-# ============================================================
-# 6. 세션 상태 관리
-# ============================================================
+# 이미지 버튼 CSS
+if logo_url:
 
-def make_chat():
-
-    cid = uuid4().hex
-
-    st.session_state.chats[cid] = {
-        "title": "새 대화",
-        "messages": []
-    }
-
-    st.session_state.current_chat = cid
-    st.session_state.fortune_open = False
-    st.session_state.upload_open = False
-
-    return cid
+    st.markdown(
+        f"""
+        <style>
+        .st-key-brand_button button {{
+            background-image: url('{logo_url}') !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
 
 
-if "chats" not in st.session_state:
-    st.session_state.chats = {}
+if cookie_url:
 
-if "current_chat" not in st.session_state:
-    st.session_state.current_chat = None
-
-if "delete_mode" not in st.session_state:
-    st.session_state.delete_mode = False
-
-if "selected_chats" not in st.session_state:
-    st.session_state.selected_chats = set()
-
-if "fortune_open" not in st.session_state:
-    st.session_state.fortune_open = False
-
-if "fortune_date" not in st.session_state:
-    st.session_state.fortune_date = None
-
-if "fortune_message" not in st.session_state:
-    st.session_state.fortune_message = None
-
-if "upload_open" not in st.session_state:
-    st.session_state.upload_open = False
-
-if "pending_question" not in st.session_state:
-    st.session_state.pending_question = None
-
-if st.session_state.current_chat not in st.session_state.chats:
-    make_chat()
+    st.markdown(
+        f"""
+        <style>
+        .st-key-cookie_button button {{
+            background-image: url('{cookie_url}') !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
 
 
-# ============================================================
-# 7. 채팅 관리 함수
-# ============================================================
-
-def new_chat():
-
-    make_chat()
-
-    st.session_state.delete_mode = False
-    st.session_state.selected_chats = set()
-
-
-def choose_chat(cid):
-
-    st.session_state.current_chat = cid
-    st.session_state.fortune_open = False
-    st.session_state.upload_open = False
-
-
-def delete_or_toggle():
-
-    if not st.session_state.delete_mode:
-
-        st.session_state.delete_mode = True
-        st.session_state.selected_chats = set()
-
-        return
-
-    selected = st.session_state.selected_chats
-
-    if selected:
-
-        for cid in selected:
-            st.session_state.chats.pop(cid, None)
-
-        if st.session_state.current_chat not in st.session_state.chats:
-            make_chat()
-
-    st.session_state.delete_mode = False
-    st.session_state.selected_chats = set()
-
-
-def update_selected(cid, checked):
-
-    chosen = set(st.session_state.selected_chats)
-
-    if checked:
-        chosen.add(cid)
-
-    else:
-        chosen.discard(cid)
-
-    st.session_state.selected_chats = chosen
-
-
-# ============================================================
-# 8. 사이드바 UI
-# ============================================================
+# ==========================================================
+# 8. 사이드바
+# ==========================================================
 
 with st.sidebar:
 
-    st.markdown("**대화 이력**")
+    st.markdown("### 대화 기록")
 
-    for cid, chat in reversed(
+    st.caption(
+        "AIVLE Mate · 나만의 학습 파트너"
+    )
+
+    if st.button(
+        "＋ 새 채팅",
+        use_container_width=True,
+        type="primary"
+    ):
+
+        new_chat()
+        st.rerun()
+
+    st.divider()
+
+    for cid, conversation in reversed(
         list(st.session_state.chats.items())
     ):
 
-        if st.session_state.delete_mode:
+        if st.session_state.deleting:
 
             st.checkbox(
-                chat["title"],
-                value=(
-                    cid in st.session_state.selected_chats
-                ),
-                key=f"select_{cid}",
-                on_change=lambda chat_id=cid: update_selected(
-                    chat_id,
-                    st.session_state[f"select_{chat_id}"]
-                )
+                conversation["title"],
+                key=f"delete_{cid}"
             )
 
         else:
 
-            label = (
-                ("● " if cid == st.session_state.current_chat else "")
-                + chat["title"]
+            marker = (
+                "●  "
+                if cid == st.session_state.chat_id
+                else "▸  "
             )
 
             if st.button(
-                label,
-                key=f"open_{cid}",
+                marker + conversation["title"],
+                key=f"chat_{cid}",
                 use_container_width=True
             ):
 
-                choose_chat(cid)
+                st.session_state.chat_id = cid
+                st.session_state.queued_question = None
                 st.rerun()
 
-    left, right = st.columns(2)
+    st.divider()
 
-    with left:
+    if st.session_state.deleting:
 
-        st.button(
-            "🗑️",
-            key="delete_button",
-            help="대화 이력 선택 삭제",
-            on_click=delete_or_toggle
-        )
+        selected = [
+            cid
+            for cid in st.session_state.chats
+            if st.session_state.get(
+                f"delete_{cid}", False
+            )
+        ]
 
-    with right:
+        if st.button(
+            "🗑 선택 삭제" if selected else "취소",
+            use_container_width=True
+        ):
 
-        st.button(
-            "＋",
-            key="new_chat_button",
-            help="새 채팅",
-            on_click=new_chat
-        )
+            for cid in selected:
+                st.session_state.chats.pop(
+                    cid, None
+                )
 
-    if st.session_state.delete_mode:
+            st.session_state.deleting = False
 
-        st.caption(
-            "삭제할 대화를 체크한 뒤 🗑️를 다시 누르세요. "
-            "선택이 없으면 취소됩니다."
-        )
+            if (
+                st.session_state.chat_id
+                not in st.session_state.chats
+            ):
+                new_chat()
 
-
-# ============================================================
-# 9. 상단 AIVLE 로고
-# ============================================================
-
-with st.container(key="chat_header"):
-
-    if LOGO_IMAGE:
-
-        st.image(
-            LOGO_IMAGE,
-            width=125
-        )
+            st.rerun()
 
     else:
 
-        st.markdown("### AIVLE")
+        if st.button(
+            "🗑 대화 삭제",
+            use_container_width=True
+        ):
 
-    st.button(
-        "새 채팅",
-        key="logo_new_chat",
-        on_click=new_chat,
-        help="새 대화 시작"
-    )
+            st.session_state.deleting = True
+            st.rerun()
 
 
-# ============================================================
-# 10. 포춘쿠키 UI
-# ============================================================
+# ==========================================================
+# 9. AIVLE 로고
+# ==========================================================
 
-with st.container(key="fortune_zone"):
+with st.container(key="topbar"):
 
-    fortune_image = (
-        FORTUNE_OPEN_IMAGE
-        if st.session_state.fortune_open
-        else FORTUNE_CLOSED_IMAGE
-    )
+    with st.container(key="brand_button"):
 
-    if fortune_image:
-
-        st.image(
-            fortune_image,
-            width=58
+        st.button(
+            "AIVLE · 새 채팅",
+            on_click=new_chat,
+            key="logo_button",
+            help="새 채팅 시작"
         )
 
-    else:
 
-        st.markdown("🥠")
+# ==========================================================
+# 10. 메인 채팅 및 환영 메시지
+# ==========================================================
 
-    if st.button(
-        "포춘쿠키 열기/닫기",
-        key="fortune_button"
-    ):
+chat = st.session_state.chats[
+    st.session_state.chat_id
+]
 
-        st.session_state.fortune_open = (
-            not st.session_state.fortune_open
+if not chat["messages"]:
+
+    with st.container(key="welcome"):
+
+        st.markdown(
+            "# 오늘도, 한 걸음 더 성장해요 ✨"
         )
 
-        st.rerun()
+        st.markdown(
+            "AIVLE Mate와 함께 궁금한 것을 "
+            "편하게 물어보세요."
+        )
 
 
-if st.session_state.fortune_open:
+# ==========================================================
+# 11. 포춘쿠키 카드
+# ==========================================================
 
-    today = today_korea()
-    date_key = today.strftime("%Y-%m-%d")
+with st.container(key="fortune_card"):
 
-    # 하루에 한 번만 LLM 호출 (현재 세션 기준)
-    if (
-        st.session_state.fortune_date != date_key
-        or not st.session_state.fortune_message
-    ):
-
-        with st.spinner("오늘의 응원을 준비하는 중..."):
-
-            try:
-
-                st.session_state.fortune_message = (
-                    generate_fortune()
-                )
-
-            except Exception:
-
-                st.session_state.fortune_message = (
-                    "오늘도 한 걸음 성장 중!"
-                )
-
-        st.session_state.fortune_date = date_key
-
-    st.markdown(
-        f"**{today.strftime('%m/%d')} 오늘의 응원: "
-        f"{st.session_state.fortune_message}**"
+    col_cookie, col_copy = st.columns(
+        [1, 3],
+        vertical_alignment="center"
     )
 
+    with col_cookie:
 
-# ============================================================
-# 11. 기존 대화 출력
-# ============================================================
+        with st.container(key="cookie_button"):
 
-current_id = st.session_state.current_chat
-chat = st.session_state.chats[current_id]
+            st.button(
+                "🥠 포춘쿠키 열기/닫기",
+                on_click=toggle_cookie,
+                key="cookie_toggle",
+                help="포춘쿠키 열기 또는 닫기"
+            )
 
-for message in chat["messages"]:
+    with col_copy:
+
+        st.markdown(
+            "**🥠 오늘의 포춘쿠키**"
+        )
+
+        if st.session_state.fortune_open:
+
+            today = korean_today()
+
+            day_key = today.strftime(
+                "%Y-%m-%d"
+            )
+
+            # 같은 세션에서 하루 한 번 생성
+            if (
+                day_key
+                not in st.session_state.fortune_by_date
+            ):
+
+                with st.spinner(
+                    "오늘의 응원 찾는 중..."
+                ):
+
+                    try:
+
+                        message = fortune_message()
+
+                    except Exception:
+
+                        message = (
+                            "오늘도 한 걸음 성장 중!"
+                        )
+
+                    st.session_state.fortune_by_date[
+                        day_key
+                    ] = message
+
+            st.markdown(
+                f"**{today:%m/%d} 오늘의 응원: "
+                f"{st.session_state.fortune_by_date[day_key]}**"
+            )
+
+            st.caption(
+                "쿠키를 다시 누르면 닫혀요"
+            )
+
+        else:
+
+            st.markdown(
+                "작은 응원이 필요할 땐 "
+                "쿠키를 눌러보세요."
+            )
+
+            st.caption(
+                "하루 한 문장 · 오늘의 행운"
+            )
+
+
+# ==========================================================
+# 12. 기존 대화 출력
+# ==========================================================
+
+for msg in chat["messages"]:
 
     role = (
         "user"
-        if isinstance(message, HumanMessage)
+        if isinstance(msg, HumanMessage)
         else "assistant"
     )
 
     with st.chat_message(role):
-        st.markdown(message.content)
+
+        st.markdown(
+            msg.content
+        )
 
 
-# ============================================================
-# 12. 사용자 질문 처리 및 스트리밍
-# ============================================================
+# ==========================================================
+# 13. 추천 질문 카드
+# ==========================================================
 
-if st.session_state.pending_question:
+if not chat["messages"]:
 
-    question = st.session_state.pending_question
-    st.session_state.pending_question = None
+    st.markdown(
+        "##### 이런 질문은 어때요?"
+    )
 
+    with st.container(
+        key="suggestion_area"
+    ):
+
+        left, right = st.columns(2)
+
+        with left:
+
+            if st.button(
+                "📘 선배들의 학습 꿀팁이 궁금해.",
+                use_container_width=True
+            ):
+
+                st.session_state.queued_question = (
+                    "선배들의 학습 꿀팁이 궁금해."
+                )
+
+                st.rerun()
+
+        with right:
+
+            if st.button(
+                "☕ 점심 먹고 너무 졸려. "
+                "깨는 방법 추천해줘.",
+                use_container_width=True
+            ):
+
+                st.session_state.queued_question = (
+                    "점심 먹고 너무 졸려 "
+                    "잠에서 깨는 방법 추천해줘."
+                )
+
+                st.rerun()
+
+
+# ==========================================================
+# 14. 파일 업로드
+# ==========================================================
+
+with st.container(
+    key="upload_box"
+):
+
+    with st.expander(
+        "＋ 학습 자료 첨부하기 · PDF / TXT / PPTX"
+    ):
+
+        uploaded = st.file_uploader(
+            "첨부할 파일",
+            type=["pdf", "txt", "pptx"],
+            accept_multiple_files=True,
+            key=f"upload_{st.session_state.chat_id}"
+        )
+
+        chat["files"] = [
+            (file.name, file.getvalue())
+            for file in (uploaded or [])
+        ]
+
+        if chat["files"]:
+
+            st.caption(
+                "첨부됨: "
+                + ", ".join(
+                    name
+                    for name, _ in chat["files"]
+                )
+            )
+
+
+# ==========================================================
+# 15. 채팅 입력 및 스트리밍 응답
+# ==========================================================
+
+question = st.chat_input(
+    "무엇이든 물어보세요. "
+    "AIVLE Mate가 함께할게요 ✨"
+)
+
+# 추천 질문 버튼에서 전달된 질문
+if (
+    not question
+    and st.session_state.queued_question
+):
+
+    question = (
+        st.session_state.queued_question
+    )
+
+    st.session_state.queued_question = None
+
+
+if question and question.strip():
+
+    question = question.strip()
+
+    # 첫 질문으로 대화 제목 자동 생성
     if chat["title"] == "새 대화":
 
         chat["title"] = (
-            question[:17]
-            + ("…" if len(question) > 17 else "")
+            question[:18]
+            + ("…" if len(question) > 18 else "")
         )
 
+    # 사용자 질문 출력
     with st.chat_message("user"):
+
         st.markdown(question)
 
-    attachments = chat.get("attachments", [])
-
+    # AI 답변 스트리밍
     with st.chat_message("assistant"):
 
         try:
 
             response = st.write_stream(
-                stream_answer(question, attachments)
+                answer_stream(
+                    question,
+                    chat["files"]
+                )
             )
 
-        except Exception as e:
+        except Exception as exc:
 
             response = (
-                "응답을 생성하지 못했습니다. "
-                "OpenAI API 키, ChromaDB 파일 및 "
-                "의존성을 확인해주세요."
+                "응답을 생성하지 못했어요. "
+                "API 키와 ChromaDB 연결을 "
+                "확인해 주세요."
             )
 
-            st.error(f"오류: {e}")
+            st.error(str(exc))
 
-    chat["messages"].append(
-        HumanMessage(content=question)
-    )
-
-    chat["messages"].append(
+    # 대화 기록 저장
+    chat["messages"].extend([
+        HumanMessage(content=question),
         AIMessage(content=response)
-    )
+    ])
 
     st.rerun()
-
-
-# ============================================================
-# 13. 하단 채팅 입력창
-# ============================================================
-
-with st.container(key="bottom_composer"):
-
-    with st.form(
-        "chat_form",
-        clear_on_submit=True,
-        border=False
-    ):
-
-        input_col, send_col = st.columns(
-            [11, 1],
-            vertical_alignment="center"
-        )
-
-        with input_col:
-
-            message_input = st.text_input(
-                "메시지",
-                placeholder="메시지를 입력하세요.",
-                label_visibility="collapsed",
-                key=f"input_{current_id}"
-            )
-
-        with send_col:
-
-            submitted = st.form_submit_button(
-                "➤",
-                help="전송",
-                use_container_width=True
-            )
-
-    if submitted and message_input.strip():
-
-        st.session_state.pending_question = (
-            message_input.strip()
-        )
-
-        st.rerun()
-
-
-    # ========================================================
-    # 14. 파일 업로드 토글
-    # ========================================================
-
-    upload_label = (
-        "🔼 파일 업로드"
-        if st.session_state.upload_open
-        else "🔽 파일 업로드"
-    )
-
-    if st.button(
-        upload_label,
-        key="toggle_upload"
-    ):
-
-        st.session_state.upload_open = (
-            not st.session_state.upload_open
-        )
-
-        st.rerun()
-
-    if st.session_state.upload_open:
-
-        attachments = st.file_uploader(
-            "PDF, TXT, PPTX 파일 추가",
-            type=["pdf", "txt", "pptx"],
-            accept_multiple_files=True,
-            key=f"file_{current_id}"
-        )
-
-        chat["attachments"] = attachments or []
-
-        if attachments:
-
-            st.caption(
-                "첨부됨: "
-                + ", ".join(
-                    f.name for f in attachments
-                )
-                + " (현재 대화에서만 사용)"
-            )
-
-
-    # ========================================================
-    # 15. 추천 채팅 프롬프트
-    # ========================================================
-
-    recommended_prompts = [
-        "선배들의 학습 꿀팁이 궁금해.",
-        "점심 먹고 너무 졸려 잠에서 깨는 방법 추천해줘."
-    ]
-
-    for prompt in recommended_prompts:
-
-        if st.button(
-            "› " + prompt,
-            key=f"suggest_{prompt}",
-            type="tertiary",
-            use_container_width=True
-        ):
-
-            st.session_state.pending_question = prompt
-            st.rerun()
