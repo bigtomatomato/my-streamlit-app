@@ -49,7 +49,7 @@ def find_image(*names):
 LOGO = find_image(
     "AIVLE 로고",
     "AIVLE  로고",
-    "aivle_logo"
+    "투명 배경 AIVLE 로고 복원"
 )
 
 COOKIE_CLOSED = find_image(
